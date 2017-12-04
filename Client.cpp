@@ -177,25 +177,25 @@ void send(int fd, const char* buffer, size_t request_size){
 	}
 }
 
-void hash_MD(char* file_name){
+char* hash_MD(char* file_name){
 	unsigned char digest[MD5_DIGEST_LENGTH];
 
 	MD5((unsigned char*)&file_name, strlen(file_name), (unsigned char*)&digest);
 
-	char mdString[33];
+	char hashed_string[33];
 
 	for(int i = 0; i < 16; i++){
-		sprintf(&mdString[i*2], "%02x", (unsigned int)digest[i]);
+		sprintf(&hashed_string[i*2], "%02x", (unsigned int)digest[i]);
 	}
 
-	printf("md5 digest: %s\n", mdString);
+	return hashed_string;
 }
 
 /*
  * get_file() - get a file from the server accessible via the given socket
  *              fd, and save it according to the save_name
  */
-void get_file(int fd, char *get_name, char *save_name)
+void get_file(int fd, char *get_name, char *save_name, bool checksum)
 {
 	if(!save_name){
 		save_name = get_name;
@@ -225,7 +225,7 @@ void get_file(int fd, char *get_name, char *save_name)
 /*
  * put_file() - send a file to the server accessible via the given socket fd
  */
-void put_file(int fd, char *put_name)
+void put_file(int fd, char *put_name, bool checksum)
 {
 	if(!put_name){
 		perror("No put name specified");
@@ -238,12 +238,23 @@ void put_file(int fd, char *put_name)
 		fseek(put_file, 0, SEEK_SET);
 		char put_buffer[put_file_size];
 		fread(put_buffer, put_file_size, 1, put_file);
-		const unsigned long long request_size = 4+strlen(put_name)+1+sizeof(put_file_size)+1+put_file_size+1;
-		char request_buffer[request_size];
-		bzero(request_buffer, request_size);
-		sprintf(request_buffer, "PUT %s\n%ld\n%s\n", put_name, put_file_size, put_buffer);
-		if(write(fd, request_buffer, request_size) < 0){
-			perror("Error writing file to server");
+		if(checksum){
+			const unsigned long long request_size = 4+strlen(put_name)+1+sizeof(put_file_size)+1+put_file_size+1;
+			char request_buffer[request_size];
+			bzero(request_buffer, request_size);
+			sprintf(request_buffer, "PUTC %s\n%ld\n%s\n", put_name, put_file_size, put_buffer);
+			if(write(fd, request_buffer, request_size) < 0){
+				perror("Error writing file to server");
+			}
+		}
+		else{
+			const unsigned long long request_size = 4+strlen(put_name)+1+sizeof(put_file_size)+1+put_file_size+1;
+			char request_buffer[request_size];
+			bzero(request_buffer, request_size);
+			sprintf(request_buffer, "PUT %s\n%ld\n%s\n", put_name, put_file_size, put_buffer);
+			if(write(fd, request_buffer, request_size) < 0){
+				perror("Error writing file to server");
+			}
 		}
 	}
 	else{
@@ -263,11 +274,12 @@ int main(int argc, char **argv)
 	char *get_name = NULL;
 	int   port;
 	char *save_name = NULL;
+	bool checksum = false;
 
 	check_team(argv[0]);
 
 	/* parse the command-line options. */
-	while((opt = getopt(argc, argv, "hs:P:G:S:p:cC")) != -1)
+	while((opt = getopt(argc, argv, "hs:P:G:S:p:c")) != -1)
 	{
 		switch(opt)
 		{
@@ -277,6 +289,7 @@ int main(int argc, char **argv)
 			case 'G': get_name = optarg; break;
 			case 'S': save_name = optarg; break;
 			case 'p': port = atoi(optarg); break;
+			case 'c': checksum = true;
 		}
 	}
 
@@ -286,11 +299,11 @@ int main(int argc, char **argv)
 	/* put or get, as appropriate */
 	if(put_name)
 	{
-		put_file(fd, put_name);
+		put_file(fd, put_name, checksum);
 	}
 	else
 	{
-		get_file(fd, get_name, save_name);
+		get_file(fd, get_name, save_name, checksum);
 	}
 
 	/* close the socket */

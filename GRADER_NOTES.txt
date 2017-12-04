@@ -1,0 +1,3 @@
+Encryption is marked with the -c flag for both put and get
+
+If no save_name is specified for a get request it defaults to the get_name
