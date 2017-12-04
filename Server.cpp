@@ -16,6 +16,7 @@
 #include "support.h"
 #include "Server.h"
 
+int count_get = 0;
 
 void help(char *progname)
 {
@@ -125,68 +126,143 @@ void file_server(int connfd, int lru_size)
 	/* TODO: set up a few static variables here to manage the LRU cache of
 	   files */
 
-	/* TODO: replace following sample code with code that satisfies the
-	   requirements of the assignment */
-
-	/* sample code: continually read lines from the client, and send them
-	   back to the client immediately */
-	while(1)
-	{
 		const int MAXLINE = 8192;
-		char      buf[MAXLINE];   /* a place to store text from the client */
+		char      buf[MAXLINE];
 		bzero(buf, MAXLINE);
+		read(connfd, buf, sizeof(buf));
+		printf("%s\n", buf);
+		if(!strncmp(buf, "GET ", 4)){
+			char get_buffer[MAXLINE];
+			bzero(get_buffer, MAXLINE);
 
-		/* read from socket, recognizing that we may get short counts */
-		char *bufp = buf;              /* current pointer into buffer */
-		ssize_t nremain = MAXLINE;     /* max characters we can still read */
-		size_t nsofar;                 /* characters read so far */
-		while (1)
-		{
-			/* read some data; swallow EINTRs */
-			if((nsofar = read(connfd, bufp, nremain)) < 0)
-			{
-				if(errno != EINTR)
-				{
-					die("read error: ", strerror(errno));
+			char* file_name = buf;
+			file_name+=4;
+			FILE* get_file = fopen(file_name, "rb");
+			if(get_file){
+				fseek(get_file, 0, SEEK_END);
+				long get_file_size = ftell(get_file);
+				fseek(get_file, 0, SEEK_SET);
+				write(connfd, &get_file_size, sizeof(get_file_size));
+				char response_buffer[3];
+				if(read(connfd, response_buffer, sizeof(response_buffer)) < 0){
+					perror("Error reading file size response from server");
 				}
-				continue;
-			}
-			/* end service to this client on EOF */
-			if(nsofar == 0)
-			{
-				fprintf(stderr, "received EOF\n");
-				return;
-			}
-			/* update pointer for next bit of reading */
-			bufp += nsofar;
-			nremain -= nsofar;
-			if(*(bufp-1) == '\n')
-			{
-				*bufp = 0;
-				break;
-			}
-		}
-
-		/* dump content back to client (again, must handle short counts) */
-		printf("server received %d bytes\n", MAXLINE-nremain);
-		nremain = bufp - buf;
-		bufp = buf;
-		while(nremain > 0)
-		{
-			/* write some data; swallow EINTRs */
-			if((nsofar = write(connfd, bufp, nremain)) <= 0)
-			{
-				if(errno != EINTR)
-				{
-					die("Write error: ", strerror(errno));
+				else{
+					if(!strncmp(response_buffer, "OK\n", 3)){
+						fread(get_buffer, get_file_size, 1, get_file);
+						if(write(connfd, get_buffer, get_file_size) < 0){
+							perror("Error writing back to client\n");
+						}
+					}
+					else{
+						perror("Bad size response message from server\n");
+					}
 				}
-				nsofar = 0;
 			}
-			nremain -= nsofar;
-			bufp += nsofar;
+			else{
+				perror("GET - File not found");
+			}
+			fclose(get_file);
 		}
-	}
+		else if(!strncmp(buf, "PUT ", 4)){
+			char* moving_buffer = buf;
+			moving_buffer+=4;
+			const char* file_name = strtok(moving_buffer, "\n");
+			printf("%s\n", file_name);
+			FILE* put_file = fopen(file_name, "wb");
+			if(put_file){
+				moving_buffer += strlen(file_name) + 1;
+				char* file_size_string = strtok(moving_buffer, "\n");
+				unsigned long long file_size = atoi(file_size_string);
+				printf("%d\n", file_size);
+				moving_buffer += strlen(file_size_string) + 1;
+				char file_contents[file_size];
+				strncpy(file_contents, moving_buffer, file_size);
+				moving_buffer+=file_size;
+				printf("-%snew line", moving_buffer);
+				fwrite(file_contents, file_size, 1, put_file);
+			}
+			else{
+				perror("Error opening file for writing");
+			}
+			fclose(put_file);
+		}
+		else{
+			printf("Invalid Request");
+		}
 }
+
+// /*
+//  * file_server() - Read a request from a socket, satisfy the request, and
+//  *                 then close the connection.
+//  */
+// void file_server(int connfd, int lru_size)
+// {
+// 	/* TODO: set up a few static variables here to manage the LRU cache of
+// 	   files */
+//
+// 	/* TODO: replace following sample code with code that satisfies the
+// 	   requirements of the assignment */
+//
+// 	/* sample code: continually read lines from the client, and send them
+// 	   back to the client immediately */
+// 	while(1)
+// 	{
+// 		const int MAXLINE = 8192;
+// 		char      buf[MAXLINE];   /* a place to store text from the client */
+// 		bzero(buf, MAXLINE);
+//
+// 		/* read from socket, recognizing that we may get short counts */
+// 		char *bufp = buf;              /* current pointer into buffer */
+// 		ssize_t nremain = MAXLINE;     /* max characters we can still read */
+// 		size_t nsofar;                 /* characters read so far */
+// 		while (1)
+// 		{
+// 			/* read some data; swallow EINTRs */
+// 			if((nsofar = read(connfd, bufp, nremain)) < 0)
+// 			{
+// 				if(errno != EINTR)
+// 				{
+// 					die("read error: ", strerror(errno));
+// 				}
+// 				continue;
+// 			}
+// 			/* end service to this client on EOF */
+// 			if(nsofar == 0)
+// 			{
+// 				fprintf(stderr, "received EOF\n");
+// 				return;
+// 			}
+// 			/* update pointer for next bit of reading */
+// 			bufp += nsofar;
+// 			nremain -= nsofar;
+// 			if(*(bufp-1) == '\n')
+// 			{
+// 				*bufp = 0;
+// 				break;
+// 			}
+// 		}
+//
+// 		/* dump content back to client (again, must handle short counts) */
+// 		printf("server received %d bytes\n", MAXLINE-nremain);
+// 		nremain = bufp - buf;
+// 		bufp = buf;
+// 		while(nremain > 0)
+// 		{
+// 			/* write some data; swallow EINTRs */
+// 			if((nsofar = write(connfd, bufp, nremain)) <= 0)
+// 			{
+// 				if(errno != EINTR)
+// 				{
+// 					die("Write error: ", strerror(errno));
+// 				}
+// 				nsofar = 0;
+// 			}
+// 			nremain -= nsofar;
+// 			bufp += nsofar;
+// 		}
+// 	}
+// }
 
 /*
  * main() - parse command line, create a socket, handle requests

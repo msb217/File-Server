@@ -151,13 +151,44 @@ void echo_client(int fd)
 	}
 }
 
-/*
- * put_file() - send a file to the server accessible via the given socket fd
- */
-void put_file(int fd, char *put_name)
-{
-	/* TODO: implement a proper solution, instead of calling the echo() client */
-	echo_client(fd);
+bool receive(int fd, char* buffer, size_t packet_size){
+	size_t total_bytes_received = 0;
+	size_t recent_size = 0;
+	while(total_bytes_received != packet_size){
+		total_bytes_received += (recent_size = read(fd, buffer, packet_size));
+		if(recent_size < 0){
+			//throw error
+			return false;
+		}
+		buffer += recent_size;
+	}
+	return true;
+}
+
+void send(int fd, const char* buffer, size_t request_size){
+	size_t total_bytes_sent = 0;
+	size_t recent_size = 0;
+	while(total_bytes_sent != request_size){
+		total_bytes_sent += (recent_size = write(fd, buffer, request_size));
+		if(recent_size < 0){
+			//throw error
+		}
+		buffer += recent_size;
+	}
+}
+
+void hash_MD(char* file_name){
+	unsigned char digest[MD5_DIGEST_LENGTH];
+
+	MD5((unsigned char*)&file_name, strlen(file_name), (unsigned char*)&digest);
+
+	char mdString[33];
+
+	for(int i = 0; i < 16; i++){
+		sprintf(&mdString[i*2], "%02x", (unsigned int)digest[i]);
+	}
+
+	printf("md5 digest: %s\n", mdString);
 }
 
 /*
@@ -166,8 +197,58 @@ void put_file(int fd, char *put_name)
  */
 void get_file(int fd, char *get_name, char *save_name)
 {
-	/* TODO: implement a proper solution, instead of calling the echo() client */
-	echo_client(fd);
+	if(!save_name){
+		save_name = get_name;
+	}
+	const unsigned int request_size = 4 + strlen(get_name);
+	char get_request[request_size];
+	bzero(get_request, request_size);
+	sprintf(get_request, "GET %s\n", get_name);
+
+	send(fd, get_request, request_size);
+
+	long file_size;
+	if(read(fd, &file_size, sizeof(file_size)) < 0){
+		perror("Bad file size");
+	}
+	else{
+		const char* ok_message = "OK\n";
+		send(fd, ok_message, 3);
+		char* file_buffer = (char *)malloc(file_size*sizeof(char));
+		receive(fd, file_buffer, file_size);
+		FILE *get_file = fopen(save_name, "wb");
+		fwrite(file_buffer, file_size, 1, get_file);
+		fclose(get_file);
+	}
+}
+
+/*
+ * put_file() - send a file to the server accessible via the given socket fd
+ */
+void put_file(int fd, char *put_name)
+{
+	if(!put_name){
+		perror("No put name specified");
+		exit(0);
+	}
+	FILE* put_file = fopen(put_name, "rb");
+	if(put_file){
+		fseek(put_file, 0, SEEK_END);
+		long put_file_size = ftell(put_file);
+		fseek(put_file, 0, SEEK_SET);
+		char put_buffer[put_file_size];
+		fread(put_buffer, put_file_size, 1, put_file);
+		const unsigned long long request_size = 4+strlen(put_name)+1+sizeof(put_file_size)+1+put_file_size+1;
+		char request_buffer[request_size];
+		bzero(request_buffer, request_size);
+		sprintf(request_buffer, "PUT %s\n%ld\n%s\n", put_name, put_file_size, put_buffer);
+		if(write(fd, request_buffer, request_size) < 0){
+			perror("Error writing file to server");
+		}
+	}
+	else{
+		perror("Invalid File");
+	}
 }
 
 /*
@@ -186,16 +267,16 @@ int main(int argc, char **argv)
 	check_team(argv[0]);
 
 	/* parse the command-line options. */
-	while((opt = getopt(argc, argv, "hs:P:G:S:p:")) != -1)
+	while((opt = getopt(argc, argv, "hs:P:G:S:p:cC")) != -1)
 	{
 		switch(opt)
 		{
-		case 'h': help(argv[0]); break;
-		case 's': server = optarg; break;
-		case 'P': put_name = optarg; break;
-		case 'G': get_name = optarg; break;
-		case 'S': save_name = optarg; break;
-		case 'p': port = atoi(optarg); break;
+			case 'h': help(argv[0]); break;
+			case 's': server = optarg; break;
+			case 'P': put_name = optarg; break;
+			case 'G': get_name = optarg; break;
+			case 'S': save_name = optarg; break;
+			case 'p': port = atoi(optarg); break;
 		}
 	}
 
