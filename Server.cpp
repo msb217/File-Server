@@ -146,7 +146,7 @@ void file_server(int connfd, int lru_size)
 		char      buf[MAXLINE];
 		bzero(buf, MAXLINE);
 		read(connfd, buf, sizeof(buf));
-		printf("%s - HERE\n", buf);
+		printf("%s\n", buf);
 
 		if(!strncmp(buf, "GET ", 4)){
 			char get_buffer[MAXLINE];
@@ -155,24 +155,17 @@ void file_server(int connfd, int lru_size)
 			file_name+=4;
 			FILE* get_file = fopen(file_name, "rb");
 			if(get_file){
+				int OK_response_size = 3 + sizeof(file_name) + 1;
+				char OK_response[OK_response_size];
+				sprintf(OK_response, "OK %s\n", file_name);
+				write(connfd, OK_response, OK_response_size);
 				fseek(get_file, 0, SEEK_END);
 				long get_file_size = ftell(get_file);
 				fseek(get_file, 0, SEEK_SET);
 				write(connfd, &get_file_size, sizeof(get_file_size));
-				char response_buffer[3];
-				if(read(connfd, response_buffer, sizeof(response_buffer)) < 0){
-					perror("Error reading file size response from server");
-				}
-				else{
-					if(!strncmp(response_buffer, "OK\n", 3)){
-						fread(get_buffer, get_file_size, 1, get_file);
-						if(write(connfd, get_buffer, get_file_size) < 0){
-							perror("Error writing back to client\n");
-						}
-					}
-					else{
-						perror("Bad size response message from server\n");
-					}
+				fread(get_buffer, get_file_size, 1, get_file);
+				if(write(connfd, get_buffer, get_file_size) < 0){
+					perror("Error writing back to client\n");
 				}
 			}
 			else{
@@ -184,13 +177,11 @@ void file_server(int connfd, int lru_size)
 			char* moving_buffer = buf;
 			moving_buffer+=4;
 			const char* file_name = strtok(moving_buffer, "\n");
-			printf("%s\n", file_name);
 			FILE* put_file = fopen(file_name, "wb");
 			if(put_file){
 				moving_buffer += strlen(file_name) + 1;
 				char* file_size_string = strtok(moving_buffer, "\n");
 				unsigned long long file_size = atoi(file_size_string);
-				printf("%d\n", file_size);
 				moving_buffer += strlen(file_size_string) + 1;
 				char file_contents[file_size];
 				strncpy(file_contents, moving_buffer, file_size);
@@ -236,7 +227,35 @@ void file_server(int connfd, int lru_size)
 			free(hashed_contents);
 		}
 		else if (!strncmp(buf, "GETC ", 5)){
-			
+			char get_buffer[MAXLINE];
+			bzero(get_buffer, MAXLINE);
+			char* file_name = buf;
+			file_name+=5;
+			FILE* get_file = fopen(file_name, "rb");
+			if(get_file){
+				int OK_response_size = 3 + strlen(file_name) + 1;
+				char OK_response[OK_response_size];
+
+				sprintf(OK_response, "OK %s\n", file_name);
+				write(connfd, OK_response, OK_response_size);
+
+				fseek(get_file, 0, SEEK_END);
+				long get_file_size = ftell(get_file);
+				fseek(get_file, 0, SEEK_SET);
+				write(connfd, &get_file_size, sizeof(get_file_size));
+
+				fread(get_buffer, get_file_size, 1, get_file);
+				char* hashed_file = hash_MD5(get_buffer);
+				write(connfd, hashed_file, 32);
+
+				if(write(connfd, get_buffer, get_file_size) < 0){
+					perror("Error writing back to client\n");
+				}
+			}
+			else{
+				perror("GET - File not found");
+			}
+			fclose(get_file);
 		}
 		else{
 			printf("Invalid Request");

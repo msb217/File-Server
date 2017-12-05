@@ -201,29 +201,54 @@ void get_file(int fd, char *get_name, char *save_name, bool checksum)
 	if(!save_name){
 		save_name = get_name;
 	}
-	const unsigned int request_size = 4 + strlen(get_name);
-	char get_request[request_size];
-	bzero(get_request, request_size);
-	sprintf(get_request, "GET %s\n", get_name);
 
-	send(fd, get_request, request_size);
-
-	long file_size;
-	if(read(fd, &file_size, sizeof(file_size)) < 0){
-		perror("Bad file size");
+	if(checksum){
+		const unsigned int request_size = 5 + strlen(get_name);
+		char get_request[request_size];
+		bzero(get_request, request_size);
+		sprintf(get_request, "GETC %s\n", get_name);
+		send(fd, get_request, request_size);
 	}
 	else{
-		if(checksum){
+		const unsigned int request_size = 4 + strlen(get_name);
+		char get_request[request_size];
+		bzero(get_request, request_size);
+		sprintf(get_request, "GET %s\n", get_name);
+		send(fd, get_request, request_size);
+	}
 
+	char OK_response[4+strlen(get_name)+1];
+	if(read(fd, &OK_response, sizeof(OK_response)) < 0){
+		perror("Inavlid OK - response from server");
+	}
+	else{
+		long file_size;
+		if(read(fd, &file_size, sizeof(file_size)) < 0){
+			perror("Bad file size");
 		}
 		else{
-			const char* ok_message = "OK\n";
-			send(fd, ok_message, 3);
-			char* file_buffer = (char *)malloc(file_size*sizeof(char));
-			receive(fd, file_buffer, file_size);
-			FILE *get_file = fopen(save_name, "wb");
-			fwrite(file_buffer, file_size, 1, get_file);
-			fclose(get_file);
+			if(checksum){
+				char* received_hash = (char *)malloc(2*MD5_DIGEST_LENGTH*sizeof(char));
+				read(fd, received_hash, 32);
+				char file_buffer[file_size];
+				read(fd, file_buffer, file_size);
+				char* calculated_hash = hash_MD5(file_buffer);
+				if(!strncmp(received_hash, calculated_hash, 32)){
+					FILE *get_file = fopen(save_name, "wb");
+					fwrite(file_buffer, file_size, 1, get_file);
+					fclose(get_file);
+				}
+				else{
+					perror("MD5 checksum invalid");
+				}
+			}
+			else{
+				char* file_buffer = (char *)malloc(file_size);
+				read(fd, file_buffer, file_size);
+				FILE *get_file = fopen(save_name, "wb");
+				fwrite(file_buffer, file_size, 1, get_file);
+				fclose(get_file);
+			}
 		}
 	}
 }
