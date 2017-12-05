@@ -177,17 +177,18 @@ void send(int fd, const char* buffer, size_t request_size){
 	}
 }
 
-char* hash_MD(char* file_name){
+char* hash_MD5(char* file_contents){
 	unsigned char digest[MD5_DIGEST_LENGTH];
+	MD5_CTX mdContext;
+	MD5_Init(&mdContext);
+	MD5_Update(&mdContext, file_contents, strlen(file_contents));
+	MD5_Final (digest ,&mdContext);
 
-	MD5((unsigned char*)&file_name, strlen(file_name), (unsigned char*)&digest);
-
-	char hashed_string[33];
-
-	for(int i = 0; i < 16; i++){
-		sprintf(&hashed_string[i*2], "%02x", (unsigned int)digest[i]);
+	char* hashed_string = (char *)malloc(2*MD5_DIGEST_LENGTH*sizeof(char));
+	bzero(hashed_string, MD5_DIGEST_LENGTH);
+	for(int i = 0; i < MD5_DIGEST_LENGTH; i++){
+		sprintf(&hashed_string[i*2], "%02x", digest[i]);
 	}
-
 	return hashed_string;
 }
 
@@ -233,16 +234,24 @@ void put_file(int fd, char *put_name, bool checksum)
 	}
 	FILE* put_file = fopen(put_name, "rb");
 	if(put_file){
+
 		fseek(put_file, 0, SEEK_END);
 		long put_file_size = ftell(put_file);
 		fseek(put_file, 0, SEEK_SET);
+
 		char put_buffer[put_file_size];
+		bzero(put_buffer, put_file_size);
 		fread(put_buffer, put_file_size, 1, put_file);
+
+		char* put_buffer_pointer = put_buffer;
+
 		if(checksum){
-			const unsigned long long request_size = 4+strlen(put_name)+1+sizeof(put_file_size)+1+put_file_size+1;
+			const unsigned long long request_size = 4+strlen(put_name)+1+33+sizeof(put_file_size)+1+put_file_size+1;
+
 			char request_buffer[request_size];
 			bzero(request_buffer, request_size);
-			sprintf(request_buffer, "PUTC %s\n%ld\n%s\n", put_name, put_file_size, put_buffer);
+			sprintf(request_buffer, "PUTC %s\n%s\n%ld\n%s\n", put_name, hash_MD5(put_buffer_pointer), put_file_size, put_buffer);
+
 			if(write(fd, request_buffer, request_size) < 0){
 				perror("Error writing file to server");
 			}

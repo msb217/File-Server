@@ -117,6 +117,22 @@ void handle_requests(int listenfd, void (*service_function)(int, int), int param
 	}
 }
 
+char* hash_MD5(char* file_contents){
+	unsigned char digest[MD5_DIGEST_LENGTH];
+	MD5_CTX mdContext;
+	MD5_Init(&mdContext);
+	MD5_Update(&mdContext, file_contents, strlen(file_contents));
+	MD5_Final (digest ,&mdContext);
+
+	char* hashed_string = (char *)malloc(2*MD5_DIGEST_LENGTH*sizeof(char));
+	bzero(hashed_string, MD5_DIGEST_LENGTH);
+	for(int i = 0; i < MD5_DIGEST_LENGTH; i++){
+		sprintf(&hashed_string[i*2], "%02x", digest[i]);
+	}
+	return hashed_string;
+}
+
+
 /*
  * file_server() - Read a request from a socket, satisfy the request, and
  *                 then close the connection.
@@ -130,15 +146,18 @@ void file_server(int connfd, int lru_size)
 		char      buf[MAXLINE];
 		bzero(buf, MAXLINE);
 		read(connfd, buf, sizeof(buf));
-		printf("%s\n", buf);
+		printf("%s - HERE\n", buf);
+
 		if(!strncmp(buf, "GET ", 4)){
 			char get_buffer[MAXLINE];
 			bzero(get_buffer, MAXLINE);
-
 			char* file_name = buf;
 			file_name+=4;
+
 			FILE* get_file = fopen(file_name, "rb");
+
 			if(get_file){
+
 				fseek(get_file, 0, SEEK_END);
 				long get_file_size = ftell(get_file);
 				fseek(get_file, 0, SEEK_SET);
@@ -179,13 +198,77 @@ void file_server(int connfd, int lru_size)
 				char file_contents[file_size];
 				strncpy(file_contents, moving_buffer, file_size);
 				moving_buffer+=file_size;
-				printf("-%snew line", moving_buffer);
 				fwrite(file_contents, file_size, 1, put_file);
 			}
 			else{
 				perror("Error opening file for writing");
 			}
 			fclose(put_file);
+		}
+		else if(!strncmp(buf, "PUTC ", 5)){
+			char* moving_buffer = buf;
+			moving_buffer+=5;
+			const char* file_name = strtok(moving_buffer, "\n");
+			moving_buffer += strlen(file_name) + 1;
+			char* MD5_digest = strtok(moving_buffer, "\n");
+			moving_buffer += 33;
+
+			char* file_size_string = strtok(moving_buffer, "\n");
+
+			unsigned long long file_size = atoi(file_size_string);
+			moving_buffer += strlen(file_size_string) + 1;
+			char file_contents[file_size];
+			strncpy(file_contents, moving_buffer, file_size);
+			moving_buffer+=file_size;
+			char* hashed_contents = hash_MD5(file_contents);
+			printf("file_name: %s\n", file_name);
+			printf("file_size: %d\n", file_size);
+			printf("file_contents: %s\n", file_contents);
+			printf("MD5_digest: %s\n", MD5_digest);
+			printf("hashed_contents: %s\n", hashed_contents);
+			if(!strncmp(hashed_contents, MD5_digest, 32)){
+				FILE* put_file = fopen(file_name, "wb");
+				if(put_file){
+					fwrite(file_contents, file_size, 1, put_file);
+				}
+				fclose(put_file);
+			}
+			else{
+				perror("MD5 does not match");
+			}
+			free(hashed_contents);
+		}
+		else if (!strncmp(buf, "GETC ", 5)){
+			char get_buffer[MAXLINE];
+			bzero(get_buffer, MAXLINE);
+			char* file_name = buf;
+			file_name+=4;
+			FILE* get_file = fopen(file_name, "rb");
+			if(get_file){
+				fseek(get_file, 0, SEEK_END);
+				long get_file_size = ftell(get_file);
+				fseek(get_file, 0, SEEK_SET);
+				write(connfd, &get_file_size, sizeof(get_file_size));
+				char response_buffer[3];
+				if(read(connfd, response_buffer, sizeof(response_buffer)) < 0){
+					perror("Error reading file size response from server");
+				}
+				else{
+					if(!strncmp(response_buffer, "OK\n", 3)){
+						fread(get_buffer, get_file_size, 1, get_file);
+						if(write(connfd, get_buffer, get_file_size) < 0){
+							perror("Error writing back to client\n");
+						}
+					}
+					else{
+						perror("Bad size response message from server\n");
+					}
+				}
+			}
+			else{
+				perror("GET - File not found");
+			}
+			fclose(get_file);
 		}
 		else{
 			printf("Invalid Request");
