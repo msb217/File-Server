@@ -153,11 +153,8 @@ void file_server(int connfd, int lru_size)
 			bzero(get_buffer, MAXLINE);
 			char* file_name = buf;
 			file_name+=4;
-
 			FILE* get_file = fopen(file_name, "rb");
-
 			if(get_file){
-
 				fseek(get_file, 0, SEEK_END);
 				long get_file_size = ftell(get_file);
 				fseek(get_file, 0, SEEK_SET);
@@ -239,36 +236,7 @@ void file_server(int connfd, int lru_size)
 			free(hashed_contents);
 		}
 		else if (!strncmp(buf, "GETC ", 5)){
-			char get_buffer[MAXLINE];
-			bzero(get_buffer, MAXLINE);
-			char* file_name = buf;
-			file_name+=4;
-			FILE* get_file = fopen(file_name, "rb");
-			if(get_file){
-				fseek(get_file, 0, SEEK_END);
-				long get_file_size = ftell(get_file);
-				fseek(get_file, 0, SEEK_SET);
-				write(connfd, &get_file_size, sizeof(get_file_size));
-				char response_buffer[3];
-				if(read(connfd, response_buffer, sizeof(response_buffer)) < 0){
-					perror("Error reading file size response from server");
-				}
-				else{
-					if(!strncmp(response_buffer, "OK\n", 3)){
-						fread(get_buffer, get_file_size, 1, get_file);
-						if(write(connfd, get_buffer, get_file_size) < 0){
-							perror("Error writing back to client\n");
-						}
-					}
-					else{
-						perror("Bad size response message from server\n");
-					}
-				}
-			}
-			else{
-				perror("GET - File not found");
-			}
-			fclose(get_file);
+			
 		}
 		else{
 			printf("Invalid Request");

@@ -213,13 +213,18 @@ void get_file(int fd, char *get_name, char *save_name, bool checksum)
 		perror("Bad file size");
 	}
 	else{
-		const char* ok_message = "OK\n";
-		send(fd, ok_message, 3);
-		char* file_buffer = (char *)malloc(file_size*sizeof(char));
-		receive(fd, file_buffer, file_size);
-		FILE *get_file = fopen(save_name, "wb");
-		fwrite(file_buffer, file_size, 1, get_file);
-		fclose(get_file);
+		if(checksum){
+
+		}
+		else{
+			const char* ok_message = "OK\n";
+			send(fd, ok_message, 3);
+			char* file_buffer = (char *)malloc(file_size*sizeof(char));
+			receive(fd, file_buffer, file_size);
+			FILE *get_file = fopen(save_name, "wb");
+			fwrite(file_buffer, file_size, 1, get_file);
+			fclose(get_file);
+		}
 	}
 }
 
