@@ -192,6 +192,72 @@ char* hash_MD5(char* file_contents){
 	return hashed_string;
 }
 
+void send_GET(int fd, char* file_name){
+	const unsigned int request_size = 4 + strlen(file_name);
+	char get_request[request_size];
+	bzero(get_request, request_size);
+	sprintf(get_request, "GET %s\n", file_name);
+	send(fd, get_request, request_size);
+}
+
+void send_GETC(int fd, char* file_name){
+	const unsigned int request_size = 5 + strlen(file_name);
+	char get_request[request_size];
+	bzero(get_request, request_size);
+	sprintf(get_request, "GETC %s\n", file_name);
+	send(fd, get_request, request_size);
+}
+
+bool read_OK(int fd, char* file_name){
+	char OK_response[4+strlen(file_name)+1];
+	if(read(fd, &OK_response, sizeof(OK_response)) < 0){
+		perror("Inavlid OK - response from server");
+		return false;
+	}
+	return true;
+}
+
+long read_file_size(int fd){
+	long file_size;
+	if(read(fd, &file_size, sizeof(file_size)) < 0){
+		perror("Bad file size");
+		return 0;
+	}
+	return file_size;
+}
+
+char* read_hash(int fd){
+	char* received_hash = (char *)malloc(2*MD5_DIGEST_LENGTH*sizeof(char));
+
+	if(read(fd, received_hash, 32) < 0){
+		perror("Error receiving checksum from server");
+	}
+	return received_hash;
+}
+
+char* receive_file(int fd, long file_size){
+	char* file_buffer = (char *)malloc(sizeof(char)*(file_size+1));
+	read(fd, file_buffer, file_size);
+	file_buffer[file_size] = '\0';
+	return file_buffer;
+}
+
+bool compare_hashes(char* received_hash, char* calculated_hash){
+	if(!strncmp(received_hash, calculated_hash, 32)){
+		return true;
+	}
+	else{
+		return false;
+		perror("MD5 checksum invalid");
+	}
+}
+
+void write_to_disk(char* save_name, char* file_buffer, long file_size){
+	FILE *file_name = fopen(save_name, "wb");
+	fwrite(file_buffer, file_size, 1, file_name);
+	fclose(file_name);
+}
+
 /*
  * get_file() - get a file from the server accessible via the given socket
  *              fd, and save it according to the save_name
@@ -203,52 +269,27 @@ void get_file(int fd, char *get_name, char *save_name, bool checksum)
 	}
 
 	if(checksum){
-		const unsigned int request_size = 5 + strlen(get_name);
-		char get_request[request_size];
-		bzero(get_request, request_size);
-		sprintf(get_request, "GETC %s\n", get_name);
-		send(fd, get_request, request_size);
+		send_GETC(fd, get_name);
 	}
 	else{
-		const unsigned int request_size = 4 + strlen(get_name);
-		char get_request[request_size];
-		bzero(get_request, request_size);
-		sprintf(get_request, "GET %s\n", get_name);
-		send(fd, get_request, request_size);
+		send_GET(fd, get_name);
 	}
 
-	char OK_response[4+strlen(get_name)+1];
-	if(read(fd, &OK_response, sizeof(OK_response)) < 0){
-		perror("Inavlid OK - response from server");
-	}
-	else{
+
+	if(read_OK(fd, get_name)){
 		long file_size;
-		if(read(fd, &file_size, sizeof(file_size)) < 0){
-			perror("Bad file size");
-		}
-		else{
+		if(file_size = read_file_size(fd)){
+			char* file_buffer = (char *)malloc(file_size);
+			file_buffer = receive_file(fd, file_size);
 			if(checksum){
-				char* received_hash = (char *)malloc(2*MD5_DIGEST_LENGTH*sizeof(char));
-				read(fd, received_hash, 32);
-				char file_buffer[file_size+1];
-				read(fd, file_buffer, file_size);
-				file_buffer[file_size] = '\0';
 				char* calculated_hash = hash_MD5(file_buffer);
-				if(!strncmp(received_hash, calculated_hash, 32)){
-					FILE *get_file = fopen(save_name, "wb");
-					fwrite(file_buffer, file_size, 1, get_file);
-					fclose(get_file);
-				}
-				else{
-					perror("MD5 checksum invalid");
+				char* received_hash = read_hash(fd);
+				if(compare_hashes(received_hash, calculated_hash)){
+					write_to_disk(save_name, file_buffer, file_size);
 				}
 			}
 			else{
-				char* file_buffer = (char *)malloc(file_size);
-				read(fd, file_buffer, file_size);
-				FILE *get_file = fopen(save_name, "wb");
-				fwrite(file_buffer, file_size, 1, get_file);
-				fclose(get_file);
+				write_to_disk(save_name, file_buffer, file_size);
 			}
 		}
 	}
