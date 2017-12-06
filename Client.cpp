@@ -230,8 +230,9 @@ void get_file(int fd, char *get_name, char *save_name, bool checksum)
 			if(checksum){
 				char* received_hash = (char *)malloc(2*MD5_DIGEST_LENGTH*sizeof(char));
 				read(fd, received_hash, 32);
-				char file_buffer[file_size];
+				char file_buffer[file_size+1];
 				read(fd, file_buffer, file_size);
+				file_buffer[file_size] = '\0';
 				char* calculated_hash = hash_MD5(file_buffer);
 				if(!strncmp(received_hash, calculated_hash, 32)){
 					FILE *get_file = fopen(save_name, "wb");
