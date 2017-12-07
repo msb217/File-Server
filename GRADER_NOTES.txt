@@ -1,3 +1,7 @@
-Encryption is marked with the -c flag for both put and get
+1. MD5 Encryption is marked with the -c flag for both put and get
 
-If no save_name is specified for a get request it defaults to the get_name
+2. If no save_name is specified for a get request it defaults to the get_name
+
+3. The cache is active throughout all of the tasks however it is backwards compatible
+between -c and no -c. If a GETC is made on a file that was previously brought into the
+with GET, the file will still have the valid checksum to fulfill the request.

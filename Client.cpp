@@ -151,32 +151,6 @@ void echo_client(int fd)
 	}
 }
 
-bool receive(int fd, char* buffer, size_t packet_size){
-	size_t total_bytes_received = 0;
-	size_t recent_size = 0;
-	while(total_bytes_received != packet_size){
-		total_bytes_received += (recent_size = read(fd, buffer, packet_size));
-		if(recent_size < 0){
-			//throw error
-			return false;
-		}
-		buffer += recent_size;
-	}
-	return true;
-}
-
-void send(int fd, const char* buffer, size_t request_size){
-	size_t total_bytes_sent = 0;
-	size_t recent_size = 0;
-	while(total_bytes_sent != request_size){
-		total_bytes_sent += (recent_size = write(fd, buffer, request_size));
-		if(recent_size < 0){
-			//throw error
-		}
-		buffer += recent_size;
-	}
-}
-
 char* hash_MD5(char* file_contents){
 	unsigned char digest[MD5_DIGEST_LENGTH];
 	MD5_CTX mdContext;
@@ -209,19 +183,18 @@ void send_GETC(int fd, char* file_name){
 }
 
 bool read_OK(int fd, char* file_name){
-	char OK_response[4+strlen(file_name)+1];
-	bzero(OK_response, 4+strlen(file_name)+1);
-	if(read(fd, &OK_response, sizeof(OK_response)) < 0){
+	char OK_response[3+strlen(file_name)+1];
+	bzero(OK_response, 3+strlen(file_name)+1);
+	if(read(fd, OK_response, 3+strlen(file_name)+1) < 0){
 		perror("Inavlid OK - response from server");
 		return false;
 	}
-	printf(OK_response);
 	return true;
 }
 
 long int read_file_size(int fd){
 	long int file_size;
-	if(read(fd, &file_size, sizeof(unsigned long long)) < 0){
+	if(read(fd, &file_size, sizeof(file_size)) < 0){
 		perror("Bad file size");
 		return 0;
 	}
@@ -233,18 +206,18 @@ char* read_hash(int fd){
 	bzero(received_hash, 2*MD5_DIGEST_LENGTH);
 	if(read(fd, received_hash, 32) < 0){
 		perror("Error receiving checksum from server");
+		free(received_hash);
 	}
 	return received_hash;
 }
 
 
-char* receive_file(int fd, long file_size){
-	char* file_buffer = (char *)malloc(sizeof(char)*(file_size+1));
-	bzero(file_buffer, file_size+1);
+char* receive_file(int fd, long int file_size){
+	char* file_buffer = (char *)malloc(sizeof(char)*(file_size));
 	if(read(fd, file_buffer, file_size) < 0){
 		perror("Error receiving checksum from server");
+		free(file_buffer);
 	}
-	file_buffer[file_size] = '\0';
 	return file_buffer;
 }
 
@@ -259,11 +232,7 @@ bool compare_hashes(char* received_hash, char* calculated_hash){
 }
 
 void write_to_disk(char* save_name, char* file_buffer, long int file_size){
-
-	// printf("%s\n", save_name);
-	// printf("%s\n", file_buffer);
-	// printf("%lld\n", file_size);
-
+	printf("SIZE:%d\n", file_size);
 	FILE *file_name = fopen(save_name, "wb");
 	fwrite(file_buffer, file_size, 1, file_name);
 	fclose(file_name);
@@ -286,27 +255,27 @@ void get_file(int fd, char *get_name, char *save_name, bool checksum)
 		send_GET(fd, get_name);
 	}
 
-
 	if(read_OK(fd, get_name)){
-		long int file_size;
-		if(file_size = read_file_size(fd)){
+		if(long int file_size = read_file_size(fd)){
 			if(checksum){
-				char* received_hash = read_hash(fd);
-				char* file_buffer = receive_file(fd, file_size);
-				char* calculated_hash = hash_MD5(file_buffer);
-				if(compare_hashes(received_hash, calculated_hash)){
-					write_to_disk(save_name, file_buffer, file_size);
+				if(char* received_hash = read_hash(fd)){
+					if(char* file_buffer = receive_file(fd, file_size)){
+						if(char* calculated_hash = hash_MD5(file_buffer)){
+							if(compare_hashes(received_hash, calculated_hash)){
+								write_to_disk(save_name, file_buffer, file_size);
+							}
+							free(calculated_hash);
+						}
+						free(file_buffer);
+					}
+					free(received_hash);
 				}
-				free(received_hash);
-				free(file_buffer);
-				free(calculated_hash);
 			}
 			else{
-				//printf("%ld\n", file_size);
-				//char* file_buffer = receive_file(fd, file_size);
-				//printf("%s\n", file_buffer);
-				//write_to_disk(save_name, file_buffer, file_size);
-				//free(file_buffer);
+				if(char* file_buffer = receive_file(fd, file_size)){
+					write_to_disk(save_name, file_buffer, file_size);
+					free(file_buffer);
+				}
 			}
 		}
 		else{
@@ -393,6 +362,7 @@ int main(int argc, char **argv)
 			case 'c': checksum = true;
 		}
 	}
+
 
 	/* open a connection to the server */
 	int fd = connect_to_server(server, port);

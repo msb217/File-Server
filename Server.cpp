@@ -144,7 +144,6 @@ bool write_OK(int connfd, char* file_name){
 }
 
 bool write_size(int connfd, long int file_size){
-	printf("%d\n", file_size);
 	if(write(connfd, &file_size, sizeof(file_size)) < 0){
 		fprintf(stderr, "%s", "Error writing file size\n");
 		return false;
@@ -179,14 +178,12 @@ bool cached(int connfd, char* file_name, char** LRU, char** LRU_file_names, long
 						if(checksum){
 							if(write_hash(connfd, LRU_hashes[i])){
 								if(write_file(connfd, LRU[i], LRU_file_sizes[i])){
-									printf("Cached\n");
 									return true;
 								}
 							}
 						}
 						else{
 							if(write_file(connfd, LRU[i], LRU_file_sizes[i])){
-								printf("Cached\n");
 								return true;
 							}
 						}
@@ -251,45 +248,22 @@ void file_server(int connfd, int lru_size)
 		char      buf[MAXLINE];
 		bzero(buf, MAXLINE);
 		read(connfd, buf, sizeof(buf));
-		printf("%s\n", buf);
+		//printf("%s\n", buf);
 
 		if(!strncmp(buf, "GET ", 4)){
-			// char get_buffer[MAXLINE];
-			// bzero(get_buffer, MAXLINE);
-			// char* file_name = buf;
-			// file_name+=4;
-			// FILE* get_file = fopen(file_name, "rb");
-			// if(get_file){
-			// 	int OK_response_size = 3 + sizeof(file_name) + 1;
-			// 	char OK_response[OK_response_size];
-			// 	sprintf(OK_response, "OK %s\n", file_name);
-			// 	write(connfd, OK_response, OK_response_size);
-			// 	fseek(get_file, 0, SEEK_END);
-			// 	long get_file_size = ftell(get_file);
-			// 	fseek(get_file, 0, SEEK_SET);
-			// 	write(connfd, &get_file_size, sizeof(get_file_size));
-			// 	fread(get_buffer, get_file_size, 1, get_file);
-			// 	if(write(connfd, get_buffer, get_file_size) < 0){
-			// 		perror("Error writing back to client\n");
-			// 	}
-			// }
-			// else{
-			// 	perror("GET - File not found");
-			// }
-			// fclose(get_file);
 			char* moving_buffer = buf;
 			moving_buffer+=4;
 			char* file_name = strtok(moving_buffer, "\n");
 			if(!cached(connfd, file_name, LRU, LRU_file_names, LRU_file_sizes, LRU_hashes, lru_size, false)){
 					FILE* get_file = fopen(file_name, "rb");
 					if(get_file){
-						char *file_buffer = (char*)malloc(sizeof(char)*MAXLINE);
 						write_OK(connfd, file_name);
 						long int file_size = read_file_size(get_file);
+						char *file_buffer = (char*)malloc(sizeof(char)*file_size);
 						fread(file_buffer, file_size, 1, get_file);
 						char* hashed_file = hash_MD5(file_buffer);
 						write_size(connfd, file_size);
-						//write_file(connfd, file_buffer, file_size);
+						write_file(connfd, file_buffer, file_size);
 						if(lru_size > 0){
 							sprintf(LRU_file_names[lru_index], "%s", (file_name));
 							LRU_file_sizes[lru_index] = file_size;
@@ -300,7 +274,6 @@ void file_server(int connfd, int lru_size)
 								*(&lru_index) = 0;
 							}
 						}
-						// update_LRU(LRU_file_names, LRU_file_sizes, LRU_hashes, LRU, file_name, file_size, hashed_file, file_buffer, lru_index, lru_size);
 					}
 					else{
 						fprintf(stderr, "GET - File not found %s\n", file_name);
@@ -368,9 +341,9 @@ void file_server(int connfd, int lru_size)
 			if(!cached(connfd, file_name, LRU, LRU_file_names, LRU_file_sizes, LRU_hashes, lru_size, true)){
 					FILE* get_file = fopen(file_name, "rb");
 					if(get_file){
-						char *file_buffer = (char*)malloc(sizeof(char)*MAXLINE);
 						write_OK(connfd, file_name);
 						long int file_size = read_file_size(get_file);
+						char *file_buffer = (char*)malloc(sizeof(char)*file_size);
 						fread(file_buffer, file_size, 1, get_file);
 						char* hashed_file = hash_MD5(file_buffer);
 						write_size(connfd, file_size);
@@ -397,6 +370,8 @@ void file_server(int connfd, int lru_size)
 			else{
 				printf("Invalid Request");
 			}
+
+
 }
 
 /*
