@@ -193,33 +193,35 @@ char* hash_MD5(char* file_contents){
 }
 
 void send_GET(int fd, char* file_name){
-	const unsigned int request_size = 4 + strlen(file_name);
+	const unsigned int request_size = 4 + strlen(file_name)+1;
 	char get_request[request_size];
 	bzero(get_request, request_size);
 	sprintf(get_request, "GET %s\n", file_name);
-	send(fd, get_request, request_size);
+	write(fd, get_request, request_size);
 }
 
 void send_GETC(int fd, char* file_name){
-	const unsigned int request_size = 5 + strlen(file_name);
+	const unsigned int request_size = 5 + strlen(file_name) +1;
 	char get_request[request_size];
 	bzero(get_request, request_size);
 	sprintf(get_request, "GETC %s\n", file_name);
-	send(fd, get_request, request_size);
+	write(fd, get_request, request_size);
 }
 
 bool read_OK(int fd, char* file_name){
 	char OK_response[4+strlen(file_name)+1];
+	bzero(OK_response, 4+strlen(file_name)+1);
 	if(read(fd, &OK_response, sizeof(OK_response)) < 0){
 		perror("Inavlid OK - response from server");
 		return false;
 	}
+	printf(OK_response);
 	return true;
 }
 
-long read_file_size(int fd){
-	long file_size;
-	if(read(fd, &file_size, sizeof(file_size)) < 0){
+long int read_file_size(int fd){
+	long int file_size;
+	if(read(fd, &file_size, sizeof(unsigned long long)) < 0){
 		perror("Bad file size");
 		return 0;
 	}
@@ -228,16 +230,20 @@ long read_file_size(int fd){
 
 char* read_hash(int fd){
 	char* received_hash = (char *)malloc(2*MD5_DIGEST_LENGTH*sizeof(char));
-
+	bzero(received_hash, 2*MD5_DIGEST_LENGTH);
 	if(read(fd, received_hash, 32) < 0){
 		perror("Error receiving checksum from server");
 	}
 	return received_hash;
 }
 
+
 char* receive_file(int fd, long file_size){
 	char* file_buffer = (char *)malloc(sizeof(char)*(file_size+1));
-	read(fd, file_buffer, file_size);
+	bzero(file_buffer, file_size+1);
+	if(read(fd, file_buffer, file_size) < 0){
+		perror("Error receiving checksum from server");
+	}
 	file_buffer[file_size] = '\0';
 	return file_buffer;
 }
@@ -252,7 +258,12 @@ bool compare_hashes(char* received_hash, char* calculated_hash){
 	}
 }
 
-void write_to_disk(char* save_name, char* file_buffer, long file_size){
+void write_to_disk(char* save_name, char* file_buffer, long int file_size){
+
+	// printf("%s\n", save_name);
+	// printf("%s\n", file_buffer);
+	// printf("%lld\n", file_size);
+
 	FILE *file_name = fopen(save_name, "wb");
 	fwrite(file_buffer, file_size, 1, file_name);
 	fclose(file_name);
@@ -277,20 +288,29 @@ void get_file(int fd, char *get_name, char *save_name, bool checksum)
 
 
 	if(read_OK(fd, get_name)){
-		long file_size;
+		long int file_size;
 		if(file_size = read_file_size(fd)){
-			char* file_buffer = (char *)malloc(file_size);
-			file_buffer = receive_file(fd, file_size);
 			if(checksum){
-				char* calculated_hash = hash_MD5(file_buffer);
 				char* received_hash = read_hash(fd);
+				char* file_buffer = receive_file(fd, file_size);
+				char* calculated_hash = hash_MD5(file_buffer);
 				if(compare_hashes(received_hash, calculated_hash)){
 					write_to_disk(save_name, file_buffer, file_size);
 				}
+				free(received_hash);
+				free(file_buffer);
+				free(calculated_hash);
 			}
 			else{
-				write_to_disk(save_name, file_buffer, file_size);
+				//printf("%ld\n", file_size);
+				//char* file_buffer = receive_file(fd, file_size);
+				//printf("%s\n", file_buffer);
+				//write_to_disk(save_name, file_buffer, file_size);
+				//free(file_buffer);
 			}
+		}
+		else{
+			printf("BAD FILE SIZE");
 		}
 	}
 }
@@ -318,7 +338,7 @@ void put_file(int fd, char *put_name, bool checksum)
 		char* put_buffer_pointer = put_buffer;
 
 		if(checksum){
-			const unsigned long long request_size = 4+strlen(put_name)+1+33+sizeof(put_file_size)+1+put_file_size+1;
+			const long int request_size = 4+strlen(put_name)+1+33+sizeof(put_file_size)+1+put_file_size+1;
 
 			char request_buffer[request_size];
 			bzero(request_buffer, request_size);
@@ -329,7 +349,7 @@ void put_file(int fd, char *put_name, bool checksum)
 			}
 		}
 		else{
-			const unsigned long long request_size = 4+strlen(put_name)+1+sizeof(put_file_size)+1+put_file_size+1;
+			const long int request_size = 4+strlen(put_name)+1+sizeof(put_file_size)+1+put_file_size+1;
 			char request_buffer[request_size];
 			bzero(request_buffer, request_size);
 			sprintf(request_buffer, "PUT %s\n%ld\n%s\n", put_name, put_file_size, put_buffer);
