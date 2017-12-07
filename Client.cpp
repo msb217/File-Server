@@ -182,6 +182,25 @@ void send_GETC(int fd, char* file_name){
 	write(fd, get_request, request_size);
 }
 
+void send_PUT(int fd, char* put_name, char* put_buffer, long int file_size){
+	const long int request_size = 4+strlen(put_name)+1+sizeof(file_size)+1+file_size+1;
+	char request_buffer[request_size];
+	bzero(request_buffer, request_size);
+	sprintf(request_buffer, "PUT %s\n%ld\n%s\n", put_name, file_size, put_buffer);
+	if(write(fd, request_buffer, request_size) < 0){
+		perror("Error writing file to server");
+	}
+}
+
+void send_PUTC(int fd, char* put_name, char* put_buffer, long int file_size){
+	const long int request_size = 4+strlen(put_name)+1+33+sizeof(file_size)+1+file_size+1;
+	char* request_buffer = (char*)malloc(sizeof(char)*request_size);
+	sprintf(request_buffer, "PUTC %s\n%s\n%ld\n%s\n", put_name, hash_MD5(put_buffer), file_size, put_buffer);
+	if(write(fd, request_buffer, request_size) < 0){
+		perror("Error writing file to server");
+	}
+}
+
 bool read_OK(int fd, char* file_name){
 	char OK_response[3+strlen(file_name)+1];
 	bzero(OK_response, 3+strlen(file_name)+1);
@@ -236,6 +255,14 @@ void write_to_disk(char* save_name, char* file_buffer, long int file_size){
 	FILE *file_name = fopen(save_name, "wb");
 	fwrite(file_buffer, file_size, 1, file_name);
 	fclose(file_name);
+}
+
+
+long int read_file_size(FILE* file){
+	fseek(file, 0, SEEK_END);
+	long int file_size = ftell(file);
+	fseek(file, 0, SEEK_SET);
+	return file_size;
 }
 
 /*
@@ -295,36 +322,15 @@ void put_file(int fd, char *put_name, bool checksum)
 	}
 	FILE* put_file = fopen(put_name, "rb");
 	if(put_file){
-
-		fseek(put_file, 0, SEEK_END);
-		long put_file_size = ftell(put_file);
-		fseek(put_file, 0, SEEK_SET);
-
-		char put_buffer[put_file_size];
-		bzero(put_buffer, put_file_size);
-		fread(put_buffer, put_file_size, 1, put_file);
-
-		char* put_buffer_pointer = put_buffer;
-
+		long int file_size = read_file_size(put_file);
+		char* put_buffer = (char*)malloc(sizeof(char)*file_size);
+		fread(put_buffer, file_size, 1, put_file);
+		fclose(put_file);
 		if(checksum){
-			const long int request_size = 4+strlen(put_name)+1+33+sizeof(put_file_size)+1+put_file_size+1;
-
-			char request_buffer[request_size];
-			bzero(request_buffer, request_size);
-			sprintf(request_buffer, "PUTC %s\n%s\n%ld\n%s\n", put_name, hash_MD5(put_buffer_pointer), put_file_size, put_buffer);
-
-			if(write(fd, request_buffer, request_size) < 0){
-				perror("Error writing file to server");
-			}
+			send_PUTC(fd, put_name, put_buffer, file_size);
 		}
 		else{
-			const long int request_size = 4+strlen(put_name)+1+sizeof(put_file_size)+1+put_file_size+1;
-			char request_buffer[request_size];
-			bzero(request_buffer, request_size);
-			sprintf(request_buffer, "PUT %s\n%ld\n%s\n", put_name, put_file_size, put_buffer);
-			if(write(fd, request_buffer, request_size) < 0){
-				perror("Error writing file to server");
-			}
+			send_PUT(fd, put_name, put_buffer, file_size);
 		}
 	}
 	else{
