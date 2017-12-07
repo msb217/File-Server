@@ -143,7 +143,8 @@ bool write_OK(int connfd, char* file_name){
 	return true;
 }
 
-bool write_size(int connfd, long file_size){
+bool write_size(int connfd, long int file_size){
+	printf("%d\n", file_size);
 	if(write(connfd, &file_size, sizeof(file_size)) < 0){
 		fprintf(stderr, "%s", "Error writing file size\n");
 		return false;
@@ -167,15 +168,25 @@ bool write_file(int connfd, char* file, long file_size){
 	return true;
 }
 
-bool cached(int connfd, char* file_name, char** LRU, char** LRU_file_names, long* LRU_file_sizes, char** LRU_hashes, int lru_size){
-	printf("HERE");
+
+bool cached(int connfd, char* file_name, char** LRU, char** LRU_file_names, long int* LRU_file_sizes, char** LRU_hashes, int lru_size, bool checksum){
+
 	for(int i = 0; i < lru_size; i++){
 		if(LRU_file_names[i]){
 			if(!strncmp(LRU_file_names[i], file_name, strlen(file_name))){
 				if(write_OK(connfd, file_name)){
 					if(write_size(connfd, LRU_file_sizes[i])){
-						if(write_hash(connfd, LRU_hashes[i])){
+						if(checksum){
+							if(write_hash(connfd, LRU_hashes[i])){
+								if(write_file(connfd, LRU[i], LRU_file_sizes[i])){
+									printf("Cached\n");
+									return true;
+								}
+							}
+						}
+						else{
 							if(write_file(connfd, LRU[i], LRU_file_sizes[i])){
+								printf("Cached\n");
 								return true;
 							}
 						}
@@ -198,9 +209,9 @@ bool cached(int connfd, char* file_name, char** LRU, char** LRU_file_names, long
 // 	}
 // }
 
-long read_file_size(FILE* file){
+long int read_file_size(FILE* file){
 	fseek(file, 0, SEEK_END);
-	long file_size = ftell(file);
+	long int file_size = ftell(file);
 	fseek(file, 0, SEEK_SET);
 	return file_size;
 }
@@ -214,21 +225,28 @@ void file_server(int connfd, int lru_size)
 
 		const int MAXLINE = 8192;
 
+		/* LRU Cache */
+		/*
+			Acts as a circular buffer
+			lru_index: represents the LRU file that will respectively be evicted if the file requested is not in the cache
+		*/
+
 		static char **LRU = (char**)malloc(sizeof(char *)*lru_size);
 		static char **LRU_file_names = (char**)malloc(sizeof(char *)*lru_size);
-		static long* LRU_file_sizes = (long*)malloc(sizeof(long)*lru_size);
+		static long int* LRU_file_sizes = (long int*)malloc(sizeof(long int)*lru_size);
 		static char** LRU_hashes = (char**)malloc(sizeof(char *)*lru_size);
 	 	static int lru_index = 0;
+		static bool lru_initialized = false;
 
-		for(int i = 0; i < lru_size; i++){
-			LRU[i] = (char*)malloc(MAXLINE * sizeof(char));
-			LRU_file_names[i] = (char*)malloc(MAXLINE * sizeof(char));
-			LRU_file_sizes[i] = 0;
-			LRU_hashes[i] = (char*)malloc(MAXLINE * sizeof(char));
+		if(!lru_initialized){
+			for(int i = 0; i < lru_size; i++){
+				LRU[i] = (char*)malloc(MAXLINE * sizeof(char));
+				LRU_file_names[i] = (char*)malloc(MAXLINE * sizeof(char));
+				LRU_file_sizes[i] = 0;
+				LRU_hashes[i] = (char*)malloc(MAXLINE * sizeof(char));
+			}
+			lru_initialized = true;
 		}
-
-		printf("%d\n", lru_index);
-
 
 		char      buf[MAXLINE];
 		bzero(buf, MAXLINE);
@@ -236,29 +254,59 @@ void file_server(int connfd, int lru_size)
 		printf("%s\n", buf);
 
 		if(!strncmp(buf, "GET ", 4)){
-			char get_buffer[MAXLINE];
-			bzero(get_buffer, MAXLINE);
-			char* file_name = buf;
-			file_name+=4;
-			FILE* get_file = fopen(file_name, "rb");
-			if(get_file){
-				int OK_response_size = 3 + sizeof(file_name) + 1;
-				char OK_response[OK_response_size];
-				sprintf(OK_response, "OK %s\n", file_name);
-				write(connfd, OK_response, OK_response_size);
-				fseek(get_file, 0, SEEK_END);
-				long get_file_size = ftell(get_file);
-				fseek(get_file, 0, SEEK_SET);
-				write(connfd, &get_file_size, sizeof(get_file_size));
-				fread(get_buffer, get_file_size, 1, get_file);
-				if(write(connfd, get_buffer, get_file_size) < 0){
-					perror("Error writing back to client\n");
+			// char get_buffer[MAXLINE];
+			// bzero(get_buffer, MAXLINE);
+			// char* file_name = buf;
+			// file_name+=4;
+			// FILE* get_file = fopen(file_name, "rb");
+			// if(get_file){
+			// 	int OK_response_size = 3 + sizeof(file_name) + 1;
+			// 	char OK_response[OK_response_size];
+			// 	sprintf(OK_response, "OK %s\n", file_name);
+			// 	write(connfd, OK_response, OK_response_size);
+			// 	fseek(get_file, 0, SEEK_END);
+			// 	long get_file_size = ftell(get_file);
+			// 	fseek(get_file, 0, SEEK_SET);
+			// 	write(connfd, &get_file_size, sizeof(get_file_size));
+			// 	fread(get_buffer, get_file_size, 1, get_file);
+			// 	if(write(connfd, get_buffer, get_file_size) < 0){
+			// 		perror("Error writing back to client\n");
+			// 	}
+			// }
+			// else{
+			// 	perror("GET - File not found");
+			// }
+			// fclose(get_file);
+			char* moving_buffer = buf;
+			moving_buffer+=4;
+			char* file_name = strtok(moving_buffer, "\n");
+			if(!cached(connfd, file_name, LRU, LRU_file_names, LRU_file_sizes, LRU_hashes, lru_size, false)){
+					FILE* get_file = fopen(file_name, "rb");
+					if(get_file){
+						char *file_buffer = (char*)malloc(sizeof(char)*MAXLINE);
+						write_OK(connfd, file_name);
+						long int file_size = read_file_size(get_file);
+						fread(file_buffer, file_size, 1, get_file);
+						char* hashed_file = hash_MD5(file_buffer);
+						write_size(connfd, file_size);
+						//write_file(connfd, file_buffer, file_size);
+						if(lru_size > 0){
+							sprintf(LRU_file_names[lru_index], "%s", (file_name));
+							LRU_file_sizes[lru_index] = file_size;
+							LRU_hashes[lru_index] = hashed_file;
+							LRU[lru_index] = file_buffer;
+							lru_index++;
+							if(lru_index == lru_size){
+								*(&lru_index) = 0;
+							}
+						}
+						// update_LRU(LRU_file_names, LRU_file_sizes, LRU_hashes, LRU, file_name, file_size, hashed_file, file_buffer, lru_index, lru_size);
+					}
+					else{
+						fprintf(stderr, "GET - File not found %s\n", file_name);
+					}
+					fclose(get_file);
 				}
-			}
-			else{
-				perror("GET - File not found");
-			}
-			fclose(get_file);
 		}
 		else if(!strncmp(buf, "PUT ", 4)){
 			char* moving_buffer = buf;
@@ -268,7 +316,7 @@ void file_server(int connfd, int lru_size)
 			if(put_file){
 				moving_buffer += strlen(file_name) + 1;
 				char* file_size_string = strtok(moving_buffer, "\n");
-				unsigned long long file_size = atoi(file_size_string);
+				long int file_size = atoi(file_size_string);
 				moving_buffer += strlen(file_size_string) + 1;
 				char file_contents[file_size];
 				strncpy(file_contents, moving_buffer, file_size);
@@ -290,7 +338,7 @@ void file_server(int connfd, int lru_size)
 
 			char* file_size_string = strtok(moving_buffer, "\n");
 
-			unsigned long long file_size = atoi(file_size_string);
+			long int file_size = atoi(file_size_string);
 			moving_buffer += strlen(file_size_string) + 1;
 			char file_contents[file_size];
 			strncpy(file_contents, moving_buffer, file_size);
@@ -314,33 +362,34 @@ void file_server(int connfd, int lru_size)
 			free(hashed_contents);
 		}
 		else if (!strncmp(buf, "GETC ", 5)){
-			char* file_name = buf;
-			file_name+=5;
-			printf("here");
-			if(!cached(connfd, file_name, LRU, LRU_file_names, LRU_file_sizes, LRU_hashes, lru_size)){
-					printf("not cached");
+			char* moving_buffer = buf;
+			moving_buffer+=5;
+			char* file_name = strtok(moving_buffer, "\n");
+			if(!cached(connfd, file_name, LRU, LRU_file_names, LRU_file_sizes, LRU_hashes, lru_size, true)){
 					FILE* get_file = fopen(file_name, "rb");
 					if(get_file){
 						char *file_buffer = (char*)malloc(sizeof(char)*MAXLINE);
 						write_OK(connfd, file_name);
-						long file_size = read_file_size(get_file);
+						long int file_size = read_file_size(get_file);
 						fread(file_buffer, file_size, 1, get_file);
 						char* hashed_file = hash_MD5(file_buffer);
 						write_size(connfd, file_size);
-						write_file(connfd, file_buffer, file_size);
 						write_hash(connfd, hashed_file);
-						LRU_file_names[lru_index] = file_name;
-						LRU_file_sizes[lru_index] = file_size;
-						LRU_hashes[lru_index] = hashed_file;
-						LRU[lru_index] = file_buffer;
-						lru_index++;
-						if(lru_index == lru_size){
-							*(&lru_index) = 0;
+						write_file(connfd, file_buffer, file_size);
+						if(lru_size > 0){
+							sprintf(LRU_file_names[lru_index], "%s", (file_name));
+							LRU_file_sizes[lru_index] = file_size;
+							LRU_hashes[lru_index] = hashed_file;
+							LRU[lru_index] = file_buffer;
+							lru_index++;
+							if(lru_index == lru_size){
+								*(&lru_index) = 0;
+							}
 						}
 						// update_LRU(LRU_file_names, LRU_file_sizes, LRU_hashes, LRU, file_name, file_size, hashed_file, file_buffer, lru_index, lru_size);
 					}
 					else{
-						perror("GET - File not found");
+						fprintf(stderr, "GETC - File not found %s\n", file_name);
 					}
 					fclose(get_file);
 				}
