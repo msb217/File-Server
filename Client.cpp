@@ -75,82 +75,6 @@ int connect_to_server(char *server, int port)
 	return clientfd;
 }
 
-/*
- * echo_client() - this is dummy code to show how to read and write on a
- *                 socket when there can be short counts.  The code
- *                 implements an "echo" client.
- */
-void echo_client(int fd)
-{
-	// main loop
-	while(1)
-	{
-		/* set up a buffer, clear it, and read keyboard input */
-		const int MAXLINE = 8192;
-		char buf[MAXLINE];
-		bzero(buf, MAXLINE);
-		if(fgets(buf, MAXLINE, stdin) == NULL)
-		{
-			if(ferror(stdin))
-			{
-				die("fgets error", strerror(errno));
-			}
-			break;
-		}
-
-		/* send keystrokes to the server, handling short counts */
-		size_t n = strlen(buf);
-		size_t nremain = n;
-		ssize_t nsofar;
-		char *bufp = buf;
-		while(nremain > 0)
-		{
-			if((nsofar = write(fd, bufp, nremain)) <= 0)
-			{
-				if(errno != EINTR)
-				{
-					fprintf(stderr, "Write error: %s\n", strerror(errno));
-					exit(0);
-				}
-				nsofar = 0;
-			}
-			nremain -= nsofar;
-			bufp += nsofar;
-		}
-
-		/* read input back from socket (again, handle short counts)*/
-		bzero(buf, MAXLINE);
-		bufp = buf;
-		nremain = MAXLINE;
-		while(1)
-		{
-			if((nsofar = read(fd, bufp, nremain)) < 0)
-			{
-				if(errno != EINTR)
-				{
-					die("read error: ", strerror(errno));
-				}
-				continue;
-			}
-			/* in echo, server should never EOF */
-			if(nsofar == 0)
-			{
-				die("Server error: ", "received EOF");
-			}
-			bufp += nsofar;
-			nremain -= nsofar;
-			if(*(bufp-1) == '\n')
-			{
-				*bufp = 0;
-				break;
-			}
-		}
-
-		/* output the result */
-		printf("%s", buf);
-	}
-}
-
 char* hash_MD5(char* file_contents){
 	unsigned char digest[MD5_DIGEST_LENGTH];
 	MD5_CTX mdContext;
@@ -193,9 +117,9 @@ void send_PUT(int fd, char* put_name, char* put_buffer, long int file_size){
 }
 
 void send_PUTC(int fd, char* put_name, char* put_buffer, long int file_size){
-	const long int request_size = 4+strlen(put_name)+1+33+sizeof(file_size)+1+file_size+1;
+	const long int request_size = 5+strlen(put_name)+1+sizeof(file_size)+33+file_size+1;
 	char* request_buffer = (char*)malloc(sizeof(char)*request_size);
-	sprintf(request_buffer, "PUTC %s\n%s\n%ld\n%s\n", put_name, hash_MD5(put_buffer), file_size, put_buffer);
+	sprintf(request_buffer, "PUTC %s\n%ld\n%s\n%s\n", put_name, file_size, hash_MD5(put_buffer), put_buffer);
 	if(write(fd, request_buffer, request_size) < 0){
 		perror("Error writing file to server");
 	}
@@ -251,7 +175,6 @@ bool compare_hashes(char* received_hash, char* calculated_hash){
 }
 
 void write_to_disk(char* save_name, char* file_buffer, long int file_size){
-	printf("SIZE:%d\n", file_size);
 	FILE *file_name = fopen(save_name, "wb");
 	fwrite(file_buffer, file_size, 1, file_name);
 	fclose(file_name);
@@ -323,8 +246,9 @@ void put_file(int fd, char *put_name, bool checksum)
 	FILE* put_file = fopen(put_name, "rb");
 	if(put_file){
 		long int file_size = read_file_size(put_file);
-		char* put_buffer = (char*)malloc(sizeof(char)*file_size);
+		char* put_buffer = (char*)malloc(sizeof(char)*(file_size+1));
 		fread(put_buffer, file_size, 1, put_file);
+		put_buffer[file_size] = '\0';
 		fclose(put_file);
 		if(checksum){
 			send_PUTC(fd, put_name, put_buffer, file_size);
