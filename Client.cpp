@@ -91,6 +91,7 @@ char* hash_MD5(char* file_contents){
 }
 
 void send_GET(int fd, char* file_name){
+	printf("SENDING %s\n",file_name);
 	const unsigned int request_size = 4 + strlen(file_name)+1;
 	char get_request[request_size];
 	bzero(get_request, request_size);
@@ -99,6 +100,7 @@ void send_GET(int fd, char* file_name){
 }
 
 void send_GETC(int fd, char* file_name){
+	printf("SENDING %s\n",file_name);
 	const unsigned int request_size = 5 + strlen(file_name) +1;
 	char get_request[request_size];
 	bzero(get_request, request_size);
@@ -107,6 +109,7 @@ void send_GETC(int fd, char* file_name){
 }
 
 void send_PUT(int fd, char* put_name, char* put_buffer, long int file_size){
+	printf("SENDING %s\n",put_name);
 	const long int request_size = 4+strlen(put_name)+1+sizeof(file_size)+1+file_size+1;
 	char request_buffer[request_size];
 	bzero(request_buffer, request_size);
@@ -117,6 +120,7 @@ void send_PUT(int fd, char* put_name, char* put_buffer, long int file_size){
 }
 
 void send_PUTC(int fd, char* put_name, char* put_buffer, long int file_size){
+	printf("SENDING %s\n", put_name);
 	const long int request_size = 5+strlen(put_name)+1+sizeof(file_size)+33+file_size+1;
 	char* request_buffer = (char*)malloc(sizeof(char)*request_size);
 	sprintf(request_buffer, "PUTC %s\n%ld\n%s\n%s\n", put_name, file_size, hash_MD5(put_buffer), put_buffer);
@@ -232,6 +236,7 @@ void get_file(int fd, char *get_name, char *save_name, bool checksum)
 			printf("BAD FILE SIZE");
 		}
 	}
+	printf("DONE: %s\n", get_name);
 }
 
 /*
@@ -260,6 +265,7 @@ void put_file(int fd, char *put_name, bool checksum)
 	else{
 		perror("Invalid File");
 	}
+	printf("DONE: %s\n", put_name);
 }
 
 /*

@@ -15,8 +15,9 @@
 #include <unistd.h>
 #include "support.h"
 #include "Server.h"
-
-int count_get = 0;
+#include <thread>
+#include <mutex>
+using namespace std;
 
 void help(char *progname)
 {
@@ -107,12 +108,17 @@ void handle_requests(int listenfd, void (*service_function)(int, int), int param
 		printf("server connected to %s (%s)\n", hp->h_name, haddrp);
 
 		/* serve requests */
-		service_function(connfd, param);
-
-		/* clean up, await new connection */
-		if(close(connfd) < 0)
-		{
-			die("Error in close(): ", strerror(errno));
+		if(multithread){
+			std::thread t = std::thread(service_function, connfd, param);
+			t.join();
+		}
+		else{
+			service_function(connfd, param);
+			/* clean up, await new connection */
+			if(close(connfd) < 0)
+			{
+				die("Error in close(): ", strerror(errno));
+			}
 		}
 	}
 }
@@ -278,8 +284,11 @@ void file_server(int connfd, int lru_size)
 		static char** LRU_hashes = (char**)malloc(sizeof(char *)*lru_size);
 	 	static int lru_index = 0;
 		static bool lru_initialized = false;
+		static mutex server_mtx;
+		static mutex cache_mtx;
 
 		if(!lru_initialized){
+			cache_mtx.lock();
 			for(int i = 0; i < lru_size; i++){
 				LRU[i] = (char*)malloc(MAXLINE * sizeof(char));
 				LRU_file_names[i] = (char*)malloc(MAXLINE * sizeof(char));
@@ -287,6 +296,7 @@ void file_server(int connfd, int lru_size)
 				LRU_hashes[i] = (char*)malloc(MAXLINE * sizeof(char));
 			}
 			lru_initialized = true;
+			cache_mtx.unlock();
 		}
 
 		char      buf[MAXLINE];
@@ -294,6 +304,7 @@ void file_server(int connfd, int lru_size)
 		read(connfd, buf, sizeof(buf));
 
 		if(!strncmp(buf, "GET ", 4)){
+			server_mtx.lock();
 			char* moving_buffer = buf;
 			moving_buffer+=4;
 			char* file_name = strtok(moving_buffer, "\n");
@@ -323,8 +334,10 @@ void file_server(int connfd, int lru_size)
 					}
 					fclose(get_file);
 				}
+				server_mtx.unlock();
 		}
 		else if (!strncmp(buf, "GETC ", 5)){
+			server_mtx.lock();
 			char* moving_buffer = buf;
 			moving_buffer+=5;
 			char* file_name = strtok(moving_buffer, "\n");
@@ -356,8 +369,10 @@ void file_server(int connfd, int lru_size)
 					}
 					fclose(get_file);
 				}
+				server_mtx.unlock();
 			}
 			else if(!strncmp(buf, "PUT ", 4)){
+				server_mtx.lock();
 				char* moving_buffer = buf;
 				moving_buffer+=4;
 				char* file_name = strtok(moving_buffer, "\n");
@@ -388,8 +403,10 @@ void file_server(int connfd, int lru_size)
 					perror("Error opening file for writing");
 				}
 				fclose(put_file);
+				server_mtx.unlock();
 			}
 			else if(!strncmp(buf, "PUTC ", 5)){
+				server_mtx.lock();
 				char* moving_buffer = buf;
 				moving_buffer+=5;
 				char* file_name = strtok(moving_buffer, "\n");
@@ -426,6 +443,7 @@ void file_server(int connfd, int lru_size)
 					perror("MD5 does not match");
 				}
 				free(hashed_contents);
+				server_mtx.unlock();
 			}
 			else{
 				printf("Invalid Request");
