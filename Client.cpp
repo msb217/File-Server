@@ -121,6 +121,7 @@ void send_PUT(int fd, char* put_name, char* put_buffer, long int file_size){
 
 void send_PUTC(int fd, char* put_name, char* put_buffer, long int file_size){
 	printf("SENDING %s\n", put_name);
+	printf("SENDING %d\n", strlen(put_buffer));
 	const long int request_size = 5+strlen(put_name)+1+sizeof(file_size)+33+file_size+1;
 	char* request_buffer = (char*)malloc(sizeof(char)*request_size);
 	sprintf(request_buffer, "PUTC %s\n%ld\n%s\n%s\n", put_name, file_size, hash_MD5(put_buffer), put_buffer);

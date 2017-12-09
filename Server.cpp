@@ -18,6 +18,7 @@
 #include <thread>
 #include <mutex>
 using namespace std;
+mutex server_mtx;
 
 void help(char *progname)
 {
@@ -109,8 +110,12 @@ void handle_requests(int listenfd, void (*service_function)(int, int), int param
 
 		/* serve requests */
 		if(multithread){
-			std::thread t = std::thread(service_function, connfd, param);
-			t.join();
+			if(!fork()){
+				service_function(connfd, param);
+      }
+			if(close(connfd) < 0){
+				die("Error in close(): ", strerror(errno));
+			}
 		}
 		else{
 			service_function(connfd, param);
@@ -139,44 +144,58 @@ char* hash_MD5(char* file_contents){
 }
 
 bool write_OK(int connfd, char* file_name){
+	server_mtx.lock();
 	int OK_response_size = 3 + strlen(file_name) + 1;
 	char OK_response[OK_response_size];
 	sprintf(OK_response, "OK %s\n", file_name);
 	if(write(connfd, OK_response, OK_response_size) < 0){
 		fprintf(stderr, "%s", "Error writing OK\n");
+		server_mtx.unlock();
 		return false;
 	}
+	server_mtx.unlock();
 	return true;
 }
 
 bool write_size(int connfd, long int file_size){
+	server_mtx.lock();
 	if(write(connfd, &file_size, sizeof(file_size)) < 0){
 		fprintf(stderr, "%s", "Error writing file size\n");
+		server_mtx.unlock();
 		return false;
 	}
+	server_mtx.unlock();
 	return true;
 }
 
 bool write_hash(int connfd, char* hashed_file){
+	server_mtx.lock();
 	if(write(connfd, hashed_file, 32) < 0){
 		fprintf(stderr, "%s", "Error writing file hash\n");
+		server_mtx.unlock();
 		return false;
 	}
+	server_mtx.unlock();
 	return true;
 }
 
 bool write_file(int connfd, char* file, long file_size){
+	server_mtx.lock();
 	if(write(connfd, file, file_size) < 0){
 		fprintf(stderr, "%s", "Error writing file contents\n");
+		server_mtx.unlock();
 		return false;
 	}
+	server_mtx.unlock();
 	return true;
 }
 
 long int read_file_size(FILE* file){
+	server_mtx.lock();
 	fseek(file, 0, SEEK_END);
 	long int file_size = ftell(file);
 	fseek(file, 0, SEEK_SET);
+	server_mtx.unlock();
 	return file_size;
 }
 
@@ -275,7 +294,6 @@ void file_server(int connfd, int lru_size)
 		/* LRU Cache */
 		/*
 			Acts as a circular buffer
-			lru_index: represents the LRU file that will respectively be evicted if the file requested is not in the cache
 		*/
 
 		static char **LRU = (char**)malloc(sizeof(char *)*lru_size);
@@ -284,7 +302,6 @@ void file_server(int connfd, int lru_size)
 		static char** LRU_hashes = (char**)malloc(sizeof(char *)*lru_size);
 	 	static int lru_index = 0;
 		static bool lru_initialized = false;
-		static mutex server_mtx;
 		static mutex cache_mtx;
 
 		if(!lru_initialized){
@@ -299,77 +316,122 @@ void file_server(int connfd, int lru_size)
 			cache_mtx.unlock();
 		}
 
+		/*
+			Read the request from the given socket
+		*/
 		char      buf[MAXLINE];
 		bzero(buf, MAXLINE);
+		server_mtx.lock();
 		read(connfd, buf, sizeof(buf));
+		server_mtx.unlock();
 
 		if(!strncmp(buf, "GET ", 4)){
-			server_mtx.lock();
 			char* moving_buffer = buf;
 			moving_buffer+=4;
 			char* file_name = strtok(moving_buffer, "\n");
+
+			/*
+				If the file isn't cached the code within the loop is run - otherwise
+				refere to get_cached to see how the Server responds with the cached contents
+			*/
+			cache_mtx.lock();
 			if(!get_cached(connfd, file_name, LRU, LRU_file_names, LRU_file_sizes, LRU_hashes, lru_size, false)){
-					FILE* get_file = fopen(file_name, "rb");
-					if(get_file){
-						write_OK(connfd, file_name);
-						long int file_size = read_file_size(get_file);
-						char* file_buffer = (char*)malloc(sizeof(char)*file_size);
-						fread(file_buffer, file_size, 1, get_file);
-						char* hashed_file = hash_MD5(file_buffer);
-						write_size(connfd, file_size);
-						write_file(connfd, file_buffer, file_size);
-						if(lru_size > 0){
-							sprintf(LRU_file_names[lru_index], "%s", (file_name));
-							LRU_file_sizes[lru_index] = file_size;
-							LRU_hashes[lru_index] = hashed_file;
-							LRU[lru_index] = file_buffer;
-							lru_index++;
-							if(lru_index == lru_size){
-								*(&lru_index) = 0;
-							}
+				cache_mtx.unlock();
+				FILE* get_file = fopen(file_name, "rb");
+				if(get_file){
+					write_OK(connfd, file_name);
+
+					long int file_size = read_file_size(get_file);
+
+					char* file_buffer = (char*)malloc(sizeof(char)*file_size);
+					fread(file_buffer, file_size, 1, get_file);
+					char* hashed_file = hash_MD5(file_buffer);
+
+					write_size(connfd, file_size);
+
+					write_file(connfd, file_buffer, file_size);
+
+					/*
+						By allowing the lru_index to be incremnted prior to accessing the
+						cache itself, we allow other threads to simulataneously work on
+						the cache with the original thread
+					*/
+					if(lru_size > 0){
+						cache_mtx.lock();
+						int temp_index = lru_index;
+						lru_index++;
+						if(lru_index == lru_size){
+							*(&lru_index) = 0;
 						}
+						cache_mtx.unlock();
+						cache_mtx.lock();
+						sprintf(LRU_file_names[temp_index], "%s", (file_name));
+						LRU_file_sizes[temp_index] = file_size;
+						LRU_hashes[temp_index] = hashed_file;
+						LRU[temp_index] = file_buffer;
+						cache_mtx.unlock();
 					}
-					else{
-						fprintf(stderr, "GET - File not found %s\n", file_name);
-					}
-					fclose(get_file);
 				}
-				server_mtx.unlock();
+				else{
+					fprintf(stderr, "GET - File not found %s\n", file_name);
+				}
+				fclose(get_file);
+			}
+			else{
+				cache_mtx.unlock();
+			}
 		}
 		else if (!strncmp(buf, "GETC ", 5)){
-			server_mtx.lock();
 			char* moving_buffer = buf;
 			moving_buffer+=5;
 			char* file_name = strtok(moving_buffer, "\n");
+			cache_mtx.lock();
 			if(!get_cached(connfd, file_name, LRU, LRU_file_names, LRU_file_sizes, LRU_hashes, lru_size, true)){
+				cache_mtx.unlock();
 					FILE* get_file = fopen(file_name, "rb");
 					if(get_file){
+
 						write_OK(connfd, file_name);
+
 						long int file_size = read_file_size(get_file);
+
 						char *file_buffer = (char*)malloc(sizeof(char)*file_size);
 						fread(file_buffer, file_size, 1, get_file);
 						char* hashed_file = hash_MD5(file_buffer);
+
 						write_size(connfd, file_size);
+
+						/*
+							Same as GET except for this function
+						*/
 						write_hash(connfd, hashed_file);
+
 						write_file(connfd, file_buffer, file_size);
+
 						if(lru_size > 0){
-							sprintf(LRU_file_names[lru_index], "%s", (file_name));
-							LRU_file_sizes[lru_index] = file_size;
-							LRU_hashes[lru_index] = hashed_file;
-							LRU[lru_index] = file_buffer;
+							cache_mtx.lock();
+							int temp_index = lru_index;
 							lru_index++;
 							if(lru_index == lru_size){
 								*(&lru_index) = 0;
 							}
+							cache_mtx.unlock();
+							cache_mtx.lock();
+							sprintf(LRU_file_names[temp_index], "%s", (file_name));
+							LRU_file_sizes[temp_index] = file_size;
+							LRU_hashes[temp_index] = hashed_file;
+							LRU[temp_index] = file_buffer;
+							cache_mtx.unlock();
 						}
-						// update_LRU(LRU_file_names, LRU_file_sizes, LRU_hashes, LRU, file_name, file_size, hashed_file, file_buffer, lru_index, lru_size);
 					}
 					else{
 						fprintf(stderr, "GETC - File not found %s\n", file_name);
 					}
 					fclose(get_file);
 				}
-				server_mtx.unlock();
+				else{
+					cache_mtx.unlock();
+				}
 			}
 			else if(!strncmp(buf, "PUT ", 4)){
 				server_mtx.lock();
@@ -388,14 +450,19 @@ void file_server(int connfd, int lru_size)
 					fwrite(file_contents, file_size, 1, put_file);
 					if(!put_cached(file_name, LRU, LRU_file_names, LRU_file_sizes, LRU_hashes, lru_size, false, file_size, hash, file_contents)){
 						if(lru_size > 0){
-							sprintf(LRU_file_names[lru_index], "%s", (file_name));
-							LRU_file_sizes[lru_index] = file_size;
-							LRU_hashes[lru_index] = hash;
-							LRU[lru_index] = file_contents;
+							cache_mtx.lock();
+							int temp_index = lru_index;
 							lru_index++;
 							if(lru_index == lru_size){
 								*(&lru_index) = 0;
 							}
+							cache_mtx.unlock();
+							cache_mtx.lock();
+							sprintf(LRU_file_names[temp_index], "%s", (file_name));
+							LRU_file_sizes[temp_index] = file_size;
+							LRU_hashes[temp_index] = hash;
+							LRU[temp_index] = file_contents;
+							cache_mtx.unlock();
 						}
 					}
 				}
@@ -406,7 +473,6 @@ void file_server(int connfd, int lru_size)
 				server_mtx.unlock();
 			}
 			else if(!strncmp(buf, "PUTC ", 5)){
-				server_mtx.lock();
 				char* moving_buffer = buf;
 				moving_buffer+=5;
 				char* file_name = strtok(moving_buffer, "\n");
@@ -421,21 +487,30 @@ void file_server(int connfd, int lru_size)
 				file_contents[file_size] = '\0';
 				char* hashed_contents = hash_MD5(file_contents);
 				if(!strncmp(hashed_contents, MD5_digest, 32)){
+					server_mtx.lock();
 					FILE* put_file = fopen(file_name, "wb");
 					if(put_file){
 						fwrite(file_contents, file_size, 1, put_file);
 					}
 					fclose(put_file);
+					server_mtx.unlock();
+					cache_mtx.lock();
 					if(!put_cached(file_name, LRU, LRU_file_names, LRU_file_sizes, LRU_hashes, lru_size, false, file_size, hashed_contents, file_contents)){
+						cache_mtx.unlock();
 						if(lru_size > 0){
-							sprintf(LRU_file_names[lru_index], "%s", (file_name));
-							LRU_file_sizes[lru_index] = file_size;
-							LRU_hashes[lru_index] = hash_MD5(file_contents);
-							LRU[lru_index] = file_contents;
+							cache_mtx.lock();
+							int temp_index = lru_index;
 							lru_index++;
 							if(lru_index == lru_size){
 								*(&lru_index) = 0;
 							}
+							cache_mtx.unlock();
+							cache_mtx.lock();
+							sprintf(LRU_file_names[temp_index], "%s", (file_name));
+							LRU_file_sizes[temp_index] = file_size;
+							LRU_hashes[temp_index] = hashed_contents;
+							LRU[temp_index] = file_contents;
+							cache_mtx.unlock();
 						}
 					}
 				}
