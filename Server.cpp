@@ -228,7 +228,9 @@ bool get_cached(int connfd, char* file_name, char** LRU, char** LRU_file_names, 
 	return false;
 }
 
-bool put_cached(char* file_name, char** LRU, char** LRU_file_names, long int* LRU_file_sizes, char** LRU_hashes, int lru_size, bool checksum, long int file_size, char* hash, char* file_buffer){
+bool put_cached(char* file_name, char** LRU, char** LRU_file_names, long int* LRU_file_sizes,
+	char** LRU_hashes, int lru_size, bool checksum, long int file_size, char* hash,
+	char* file_buffer, FILE* file){
 		for(int i = 0; i < lru_size; i++){
 			if(LRU_file_names[i]){
 				if(!strncmp(LRU_file_names[i], file_name, strlen(file_name))){
@@ -423,11 +425,11 @@ void file_server(int connfd, int lru_size)
 							LRU[temp_index] = file_buffer;
 							cache_mtx.unlock();
 						}
+						fclose(get_file);
 					}
 					else{
 						fprintf(stderr, "GETC - File not found %s\n", file_name);
 					}
-					fclose(get_file);
 				}
 				else{
 					cache_mtx.unlock();
@@ -444,11 +446,15 @@ void file_server(int connfd, int lru_size)
 					char* file_size_string = strtok(moving_buffer, "\n");
 					long int file_size = atoi(file_size_string);
 					moving_buffer += strlen(file_size_string) + 1;
-					char* file_contents = (char*)malloc(file_size*sizeof(char));
+					char* file_contents = (char*)malloc((file_size+1)*sizeof(char));
 					strncpy(file_contents, moving_buffer, file_size);
+					file_contents[file_size] = '\0';
 					char* hash = hash_MD5(file_contents);
 					fwrite(file_contents, file_size, 1, put_file);
-					if(!put_cached(file_name, LRU, LRU_file_names, LRU_file_sizes, LRU_hashes, lru_size, false, file_size, hash, file_contents)){
+					cache_mtx.lock();
+					if(!put_cached(file_name, LRU, LRU_file_names, LRU_file_sizes, LRU_hashes,
+						lru_size, false, file_size, hash, file_contents, put_file)){
+						cache_mtx.unlock();
 						if(lru_size > 0){
 							cache_mtx.lock();
 							int temp_index = lru_index;
@@ -465,6 +471,9 @@ void file_server(int connfd, int lru_size)
 							cache_mtx.unlock();
 						}
 					}
+					else{
+						cache_mtx.unlock();
+					}
 				}
 				else{
 					perror("Error opening file for writing");
@@ -473,56 +482,58 @@ void file_server(int connfd, int lru_size)
 				server_mtx.unlock();
 			}
 			else if(!strncmp(buf, "PUTC ", 5)){
+				server_mtx.lock();
 				char* moving_buffer = buf;
 				moving_buffer+=5;
 				char* file_name = strtok(moving_buffer, "\n");
 				moving_buffer += strlen(file_name) + 1;
-				char* file_size_string = strtok(moving_buffer, "\n");
-				long int file_size = atoi(file_size_string);
-				moving_buffer += strlen(file_size_string) + 1;
-				char* MD5_digest = strtok(moving_buffer, "\n");
-				moving_buffer += 33;
-				char* file_contents = (char*)malloc((file_size+1)*sizeof(char));
-				strncpy(file_contents, moving_buffer, file_size);
-				file_contents[file_size] = '\0';
-				char* hashed_contents = hash_MD5(file_contents);
-				if(!strncmp(hashed_contents, MD5_digest, 32)){
-					server_mtx.lock();
-					FILE* put_file = fopen(file_name, "wb");
-					if(put_file){
+				FILE* put_file = fopen(file_name, "wb");
+				if(put_file){
+					char* file_size_string = strtok(moving_buffer, "\n");
+					long int file_size = atoi(file_size_string);
+					moving_buffer += strlen(file_size_string) + 1;
+					char* MD5_digest = strtok(moving_buffer, "\n");
+					moving_buffer += 33;
+					char* file_contents = (char*)malloc((file_size+1)*sizeof(char));
+					strncpy(file_contents, moving_buffer, file_size);
+					file_contents[file_size] = '\0';
+					char* hash = hash_MD5(file_contents);
+					if(!strncmp(hash, MD5_digest, 32)){
 						fwrite(file_contents, file_size, 1, put_file);
-					}
-					fclose(put_file);
-					server_mtx.unlock();
-					cache_mtx.lock();
-					if(!put_cached(file_name, LRU, LRU_file_names, LRU_file_sizes, LRU_hashes, lru_size, false, file_size, hashed_contents, file_contents)){
-						cache_mtx.unlock();
-						if(lru_size > 0){
-							cache_mtx.lock();
-							int temp_index = lru_index;
-							lru_index++;
-							if(lru_index == lru_size){
-								*(&lru_index) = 0;
-							}
+						cache_mtx.lock();
+						if(!put_cached(file_name, LRU, LRU_file_names, LRU_file_sizes, LRU_hashes,
+							lru_size, false, file_size, hash, file_contents, put_file)){
 							cache_mtx.unlock();
-							cache_mtx.lock();
-							sprintf(LRU_file_names[temp_index], "%s", (file_name));
-							LRU_file_sizes[temp_index] = file_size;
-							LRU_hashes[temp_index] = hashed_contents;
-							LRU[temp_index] = file_contents;
+							if(lru_size > 0){
+								cache_mtx.lock();
+								int temp_index = lru_index;
+								lru_index++;
+								if(lru_index == lru_size){
+									*(&lru_index) = 0;
+								}
+								cache_mtx.unlock();
+								cache_mtx.lock();
+								sprintf(LRU_file_names[temp_index], "%s", (file_name));
+								LRU_file_sizes[temp_index] = file_size;
+								LRU_hashes[temp_index] = hash;
+								LRU[temp_index] = file_contents;
+								cache_mtx.unlock();
+							}
+						}
+						else{
 							cache_mtx.unlock();
 						}
 					}
+					else{
+						perror("MD5 does not match");
+					}
+					fclose(put_file);
 				}
-				else{
-					perror("MD5 does not match");
-				}
-				free(hashed_contents);
 				server_mtx.unlock();
-			}
-			else{
-				printf("Invalid Request");
-			}
+		}
+		else{
+			printf("Invalid Request");
+		}
 }
 
 /*
