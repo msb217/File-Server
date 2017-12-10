@@ -143,6 +143,7 @@ bool read_OK(int fd, char* file_name){
 long int read_file_size(int fd){
 	long int file_size;
 	if(read(fd, &file_size, sizeof(file_size)) < 0){
+		printf("%ld\n", file_size);
 		perror("Bad file size");
 		return 0;
 	}
