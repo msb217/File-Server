@@ -2,13 +2,15 @@
 A multithreaded file server + client to execute GET and PUT requests. Includes MD5 Encryption  
 
 #### Quick start  
-From within the project folder run the server with `./obj64/Server -p <PORT> <ARGS>`  
+From within the project folder run the server with   
+`./obj64/Server -p <PORT> <ARGS>`  
 ````
 -m    enable multithreading mode  
 -l    number of entries in the LRU cache  
 -p    port on which to listen for connections . 
 ````
-From another folder make GET and PUT requests to the server with the client `./<PATH>/File-Server/obj64/Client -s <SERVER> -p <PORT>`  
+From another folder make GET and PUT requests to the server with the client   
+`./<PATH>/File-Server/obj64/Client -s <SERVER> -p <PORT> <ARGS>`  
 ````
 -P <filename>   PUT file indicated by parameter  
 -G <filename>   GET file indicated by parameter  
