@@ -394,7 +394,6 @@ void file_server(int connfd, int lru_size)
 					if(get_file){
 
 						write_OK(connfd, file_name);
-
 						long int file_size = read_file_size(get_file);
 
 						char *file_buffer = (char*)malloc(sizeof(char)*file_size);

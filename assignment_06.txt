@@ -7,7 +7,7 @@ In this assignment, we will gain familiarity with concepts in security and resou
 
 Getting Started
 
-  We provide a tar file with starter code at ~jloew/CSE303/cse303_p6.tgz. As in previous assignments, this code has several files, which contain incomplete functions. You must complete the functions in the files to satisfy the requirements of the assignment.
+  We provide a tar file with starter code at (omitted). As in previous assignments, this code has several files, which contain incomplete functions. You must complete the functions in the files to satisfy the requirements of the assignment.
 
 By default, the starter code will allow the client to interact with the server via stdin. Messages sent from the client will be reported server side and will be echoed back to the client who will output that message back. You can use this behavior to control directly what the server is sent for testing purposes. You may want to keep a copy of this basic client around.
 
@@ -99,21 +99,6 @@ Task #5: Multithreaded Adaptation
 Adapt Task #4 such that it works properly with the expected behavior of Task #2.
 
 This will only take effect if lru_size is greater than 0 and if multithreading is enabled.
-
-Task #6: Add encryption to the client
-
-The bug in Task #4 should give you pause: an administrator can access your files at any time! To secure them, extend your Client.cpp so that it encrypts files before PUT/PUTC, and decrypts them after GET/GETC. You may assume that the user has run the following commands in the working directory:
-
-    openssl genrsa -out private.pem 2048
-    openssl rsa -in private.pem -outform PEM -pubout -out public.pem
-
-Thus you may assume that there are files "private.pem" and "public.pem" that contain the encryption keys to use. Be sure to use the correct key before sending content.
-
-This mechanism should not use a different protocol as it is client-side.
-
-Note that the server is untrusted, and should not know anything about the encryption. You should be able to use functions such as PEM_read_RSA_PUBKEY() to load your encryption keys, and functions such as RSA_public_encrypt() to encrypt and decrypt your data.  Note, too, that RSA is a 2048-bit algorithm, so you may need to be clever about how you encrypt the data (i.e., you may need to break it into 256-byte blocks). Remember that RSA is expensive and we probably who use something like AES (or some symmetric key) to do something like this.
-
-Make sure to use the recommended padding, not the most widely used padding (use RSA_PKCS1_OAEP_PADDING).
 
 Turn-In Instructions
 

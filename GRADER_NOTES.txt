@@ -1,10 +1,8 @@
 Summary:
 This was tested with a max file size of 115647701 bytes. Specifically, a docker
-disc image file and it successfully passed PUT, PUTC, GET, and GETC - as well
-as being read from the cache properly. I did not provide this file for testing in
-order to not bog down the turnin process - but it is available in my home directory
-/home/msb217 if you so wish to test it with that (Docker.dmg). I even went as far
-as sending it back to my local machine after the transfer and reinstalling docker.
+disc image file and it successfully passed GET and GETC - was read
+from the cache properly - both single and multithreaded. This file is available
+in my home directory /home/msb217/Docker.dmg if you so wish to test it with that.
 
 Notes:
 1. MD5 Encryption is marked with the -c flag for both put and get
@@ -14,3 +12,5 @@ Notes:
 3. The cache is active throughout all of the tasks however it is backwards compatible
 between -c and no -c. If a GETC is made on a file that was previously brought into the
 with GET, the file will still have the valid checksum to fulfill the request.
+
+4. It works with Emojis (not that it matters)
