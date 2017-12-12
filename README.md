@@ -9,7 +9,7 @@ From within the project folder run the server with
 -l    number of entries in the LRU cache  
 -p    port on which to listen for connections . 
 ````
-From another folder make GET and PUT requests to the server with the client       
+From another folder make GET and PUT requests to the server with the client  
 `./<PATH>/File-Server/obj64/Client -s <SERVER> -p <PORT> <ARGS>`  
 ````
 -P <filename>   PUT file indicated by parameter  
