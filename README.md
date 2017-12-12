@@ -1,5 +1,4 @@
-# File-Server  
-Compiled with gcc-7.1.0  
+# File-Server    
 A multithreaded file server + client to execute GET and PUT requests. Includes MD5 Encryption  
 
 #### Quick start  
@@ -15,4 +14,6 @@ From another folder make GET and PUT requests to the file with the file `./<PATH
 -s              server info (IP or hostname)  
 -p              port on which to contact server  
 -S <filename>   for GETs, name to use when saving file locally  
--c              enable MD5 encryption  `
+-c              enable MD5 encryption` .     
+
+###### Compiled with gcc-7.1.0
